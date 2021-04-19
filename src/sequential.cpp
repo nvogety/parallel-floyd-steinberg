@@ -108,7 +108,7 @@ int main(void) {
 
     cout << "Read image, width: " <<  width << ", height: " << height << ", channels: "<<channels << endl; 
 
-    color_dither(img, width, height, channels, 1);
+    color_dither(img, width, height, channels, 4);
 
     //gray(img, width, height, channels);
 
