@@ -107,7 +107,7 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
 
     // Allocate device memory buffers on the GPU using cudaMalloc
     //TODO: Slightly confused what needs to be malloced on device - not sure if this is correct
-    cudaMalloc(&cudaDeviceImageData, sizeof(unsigned char) * width * height);
+    cudaMalloc(&cudaDeviceImageData, sizeof(uint8_t) * width * height * channels);
 
 
     // TODO copy input arrays to the GPU using cudaMemcpy
@@ -119,7 +119,7 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
    
     unsigned char *outputImageData;
     // copy result from GPU using cudaMemcpy: Idea is to copy computed image to local
-    cudaMemcpy(outputImageData, cudaDeviceImageData, sizeof(unsigned char),cudaMemcpyDeviceToHost);
+    cudaMemcpy(outputImageData, cudaDeviceImageData, sizeof(uint8_t), cudaMemcpyDeviceToHost);
 
     cudaError_t errCode = cudaPeekAtLastError();
     if (errCode != cudaSuccess) {
