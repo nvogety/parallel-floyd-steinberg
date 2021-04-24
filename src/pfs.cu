@@ -10,6 +10,12 @@
 #define BLOCKSIZE 1024 // BLOCKDIMCOMP^2
 #define FACTOR 4
 
+#define TOP_RIGHT_ERR_DIFF (7 / 16)
+#define BOT_LEFT_ERR_DIFF (3 / 16)
+#define BOT_MID_ERR_DIFF (5 / 16)
+#define BOT_RIGHT_ERR_DIFF (1 / 16)
+
+
 // #define SCAN_BLOCK_DIM 1024 // BLOCKSIZE 
 // #define NUMOFCIRCLESPERBLOCK 1750 // can change this
 // #define NUMOFCIRCLESPERTHREAD 100 // NUMOFCIRCLESPERBLOCK/BLOCKSIZE rounded up
@@ -32,68 +38,66 @@
 
 // kernelPfs -- (CUDA device code)
 // TODO: Specific work each cuda block work still needs to be divided.
-__global__ void kernelPfs(int imageWidth, int imageHeight) {
+__global__ void kernelPfs(int imageWidth, int imageHeight, int channels unsigned char* img) {
 
     //TODO: What work needs to be done and how is work split?  
     
-    //TODOL Some parallelization on sequential code
+    // Boundary of box we are computing -> Don't know if this is useful but for conceptual understanding
+    int blockMinX = blockIdx.x * blockDim.x;
+    int blockMaxX = blockMinX + blockDim.x;
+    int blockMinY = blockIdx.y * blockDim.y;
+    int blockMaxY = blockMinY + blockDim.y;
+
+    int threadID =  threadIdx.y * blockDim.x + threadIdx.x;
+
+    unsigned char* pixel = img + (blockIdx.x + imageWidth * blockIdxy) * channels;
+    unsigned char* pixel_right = img + ((blockIdx.x+1) + imageWidth * blockIdx.y) * channels;
+    unsigned char* pixel_bottom_left = img + ((blockIdx.x-1) + imageWidth * (blockIdx.y+1)) * channels;
+    unsigned char* pixel_bottom = img + (blockIdx.x + width * (blockIdx.y+1)) * channels;
+    unsigned char* pixel_bottom_right = img + ((blockIdx.y+1) + imageWidth * (blockIdx.y+1)) * channels;
+
+    int oldR = static_cast<int>(pixel[0]);
+    int oldG = static_cast<int>(pixel[1]);
+    int oldB = static_cast<int>(pixel[1]);
+
+    int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
+    int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
+    int newB = round(FACTOR * oldB / 255.0) * (255/FACTOR);
+
+    pixel[0] = newR;
+    pixel[1] = newG;
+    pixel[2] = newB;
+
+    int qErrorR = oldR - newR;
+    int qErrorG = oldG - newG;
+    int qErrorB = oldB - newB;
+
+    pixel_right[0] = (uint8_t)(pixel_right[0] + (qErrorR * TOP_RIGHT_ERR_DIFF));
+    pixel_right[1] = (uint8_t)(pixel_right[1] + (qErrorG * TOP_RIGHT_ERR_DIFF));
+    pixel_right[2] = (uint8_t)(pixel_right[2] + (qErrorB * TOP_RIGHT_ERR_DIFF));
+
+    pixel_bottom_left[0] = (uint8_t)(pixel_bottom_left[0] + (qErrorR * BOT_LEFT_ERR_DIFF));
+    pixel_bottom_left[1] = (uint8_t)(pixel_bottom_left[1] + (qErrorG * BOT_LEFT_ERR_DIFF));
+    pixel_bottom_left[2] = (uint8_t)(pixel_bottom_left[2] + (qErrorB * BOT_LEFT_ERR_DIFF));
+
+    pixel_bottom[0] = (uint8_t)(pixel_bottom[0] + (qErrorR * BOT_MID_ERR_DIFF));
+    pixel_bottom[1] = (uint8_t)(pixel_bottom[1] + (qErrorG * BOT_MID_ERR_DIFF));
+    pixel_bottom[2] = (uint8_t)(pixel_bottom[2] + (qErrorB * BOT_MID_ERR_DIFF));
+
+    pixel_bottom_right[0] = (uint8_t)(pixel_bottom_right[0] + (qErrorR * BOT_RIGHT_ERR_DIFF));
+    pixel_bottom_right[1] = (uint8_t)(pixel_bottom_right[1] + (qErrorG * BOT_RIGHT_ERR_DIFF));
+    pixel_bottom_right[2] = (uint8_t)(pixel_bottom_right[2] + (qErrorB * BOT_RIGHT_ERR_DIFF));
     
-
-
-    // for(int y = 0; y < height-1; y++){
-    //     for(int x = 1; x < width-1; x++){
-
-                // TODO: Goal to make this part of the work parallel
-
-    //         unsigned char* pixel = img + (x + width * y) * channels;
-    //         unsigned char* pixel_right = img + ((x+1) + width * y) * channels;
-    //         unsigned char* pixel_bottom_left = img + ((x-1) + width * (y+1)) * channels;
-    //         unsigned char* pixel_bottom = img + (x + width * (y+1)) * channels;
-    //         unsigned char* pixel_bottom_right = img + ((x+1) + width * (y+1)) * channels;
-
-    //         int oldR = static_cast<int>(pixel[0]);
-    //         int oldG = static_cast<int>(pixel[1]);
-    //         int oldB = static_cast<int>(pixel[1]);
-
-    //         int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
-    //         int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
-    //         int newB = round(FACTOR * oldB / 255.0) * (255/FACTOR);
-
-    //         pixel[0] = newR;
-    //         pixel[1] = newG;
-    //         pixel[2] = newB;
-
-    //         int qErrorR = oldR - newR;
-    //         int qErrorG = oldG - newG;
-    //         int qErrorB = oldB - newB;
-
-    //         pixel_right[0] = (uint8_t)(pixel_right[0] + (qErrorR * (7.0 / 16.0)));
-    //         pixel_right[1] = (uint8_t)(pixel_right[1] + (qErrorG * (7.0 / 16.0)));
-    //         pixel_right[2] = (uint8_t)(pixel_right[2] + (qErrorB * (7.0 / 16.0)));
-
-    //         pixel_bottom_left[0] = (uint8_t)(pixel_bottom_left[0] + (qErrorR * (3.0 / 16.0)));
-    //         pixel_bottom_left[1] = (uint8_t)(pixel_bottom_left[1] + (qErrorG * (3.0 / 16.0)));
-    //         pixel_bottom_left[2] = (uint8_t)(pixel_bottom_left[2] + (qErrorB * (3.0 / 16.0)));
-
-    //         pixel_bottom[0] = (uint8_t)(pixel_bottom[0] + (qErrorR * (5.0 / 16.0)));
-    //         pixel_bottom[1] = (uint8_t)(pixel_bottom[1] + (qErrorG * (5.0 / 16.0)));
-    //         pixel_bottom[2] = (uint8_t)(pixel_bottom[2] + (qErrorB * (5.0 / 16.0)));
-
-    //         pixel_bottom_right[0] = (uint8_t)(pixel_bottom_right[0] + (qErrorR * (1.0 / 16.0)));
-    //         pixel_bottom_right[1] = (uint8_t)(pixel_bottom_right[1] + (qErrorG * (1.0 / 16.0)));
-    //         pixel_bottom_right[2] = (uint8_t)(pixel_bottom_right[2] + (qErrorB * (1.0 / 16.0)));
-            
-    //         // cout << "R: " << (int)oldR << "->" << newR << " G: " << (int)oldG << "->" << newG << " B: " << (int)oldB << "->" << newB<< endl;
-    //     }
-    // }
     
-    // cout << "Generated Color Dithered image" << endl; 
+    // IDK how this write works - Is it just making the modification? So can we just partially 
+    // write each part 
+    cout << "Generated Color Dithered image" << endl; 
 
-    // stbi_write_png("../images/dither.png", width, height, channels, img, width * channels);
+    stbi_write_png("../images/dither.png", imageWidth, imageHeight, channels, img, imageWidth * channels);
 
-    // cout << "Wrote Color Dithered image" << endl; 
+    cout << "Wrote Color Dithered image" << endl; 
 
-    // return;
+    return;
 
 }
 
@@ -114,7 +118,11 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
     // cudaMemcpy( cudaMemcpyHostToDevice);
 
     // run kernel
-    kernelPfs<<<gridDim, blockDim>>>();
+    kernelPfs<<<gridDim, blockDim>>>(imageHeight, imageWidth, channels, img);
+
+    // TODO: Uncomment and check for correctness that image still renders
+    // kernelPfs<<<1, 1>>>();
+
     cudaDeviceSynchronize();
    
     unsigned char *outputImageData;
@@ -143,13 +151,8 @@ int main () {
 
     printf("Read image, width: %d, height: %d, channels: %d", width, height, channels);
 
-
     pfsCuda(width, height, channels, img);
-
-
-
     stbi_image_free(img);
-
 
     return 0;
 }
