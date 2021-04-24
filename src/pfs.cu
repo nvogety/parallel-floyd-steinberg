@@ -38,7 +38,7 @@
 
 // kernelPfs -- (CUDA device code)
 // TODO: Specific work each cuda block work still needs to be divided.
-__global__ void kernelPfs(int imageWidth, int imageHeight, int channels unsigned char* img) {
+__global__ void kernelPfs(int imageWidth, int imageHeight, int channels, unsigned char* img, unsigned char* output) {
 
     //TODO: What work needs to be done and how is work split?  
     
@@ -89,13 +89,9 @@ __global__ void kernelPfs(int imageWidth, int imageHeight, int channels unsigned
     pixel_bottom_right[2] = (uint8_t)(pixel_bottom_right[2] + (qErrorB * BOT_RIGHT_ERR_DIFF));
     
     
-    // IDK how this write works - Is it just making the modification? So can we just partially 
-    // write each part 
-    cout << "Generated Color Dithered image" << endl; 
-
-    stbi_write_png("../images/dither.png", imageWidth, imageHeight, channels, img, imageWidth * channels);
-
-    cout << "Wrote Color Dithered image" << endl; 
+    // idk how this write works - Is it just making the modification? So can we just partially 
+    // write each part.
+    
 
     return;
 
@@ -116,9 +112,10 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
 
     // TODO copy input arrays to the GPU using cudaMemcpy
     // cudaMemcpy( cudaMemcpyHostToDevice);
+    unsigned char *outputImageData;
 
     // run kernel
-    kernelPfs<<<gridDim, blockDim>>>(imageHeight, imageWidth, channels, img);
+    kernelPfs<<<gridDim, blockDim>>>(imageHeight, imageWidth, channels, img, outputImageData);
 
     // TODO: Uncomment and check for correctness that image still renders
     // kernelPfs<<<1, 1>>>();
@@ -133,6 +130,10 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
     if (errCode != cudaSuccess) {
         fprintf(stderr, "WARNING: A CUDA error occured: code=%d, %s\n", errCode, cudaGetErrorString(errCode));
     }
+
+    cout << "Generated Color Dithered image" << endl; 
+    stbi_write_png("../images/dither.png", imageWidth, imageHeight, channels, outputImageData, imageWidth * channels);
+    cout << "Wrote Color Dithered image" << endl; 
 
     // free memory buffers on the GPU
     cudaFree(cudaDeviceImageData);
