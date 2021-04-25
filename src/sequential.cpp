@@ -3,6 +3,9 @@
 #include <iostream>
 #include <math.h>
 
+#include "CycleTimer.h"
+
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image/stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -99,6 +102,9 @@ void gray(unsigned char *img, int width, int height, int channels){
 
 // stb use from: https://solarianprogrammer.com/2019/06/10/c-programming-reading-writing-images-stb_image-libraries/
 int main(void) {
+
+    double startTime = CycleTimer::currentSeconds();
+
     int width, height, channels;
     unsigned char *img = stbi_load("../images/landscape.png", &width, &height, &channels, 0);
     if(img == NULL) {
@@ -107,8 +113,13 @@ int main(void) {
     }
 
     cout << "Read image, width: " <<  width << ", height: " << height << ", channels: "<<channels << endl; 
-
     color_dither(img, width, height, channels, 4);
+
+    double endTime = CycleTimer::currentSeconds();
+
+    cout << "Time Taken: " << endTime - startTime << " seconds" << endl;
+
+
 
     //gray(img, width, height, channels);
 
