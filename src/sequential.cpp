@@ -106,7 +106,7 @@ int main(void) {
     double startTime = CycleTimer::currentSeconds();
 
     int width, height, channels;
-    unsigned char *img = stbi_load("../images/landscape.png", &width, &height, &channels, 0);
+    unsigned char *img = stbi_load("../images/disney.png", &width, &height, &channels, 0);
     if(img == NULL) {
         printf("Error in loading the image\n");
         exit(1);
