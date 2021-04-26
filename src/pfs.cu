@@ -7,7 +7,7 @@
 
 
 
-#define BLOCKDIMCOMP 16
+#define BLOCKDIMCOMP 8
 #define BLOCKSIZE 4 // BLOCKDIMCOMP^2
 #define FACTOR 4
 
@@ -36,6 +36,92 @@
 ///////////////////////////////////////////////////////////////////////////////////////
 
 
+__global__ void kernelPfsBlockFaster(unsigned char* img, int width, int height, int channels, int xblock, int yblock) {
+    // Stage 1 -> Have all threads in block create a shared mem copy of img
+    
+    __shared__ unsigned char shared_img[20000];
+
+
+    int threadID =  threadIdx.y * blockDim.x + threadIdx.x;
+    int numOfThreads = blockDim.x * blockDim.y;
+
+    printf("Thread %d\n", threadID); 
+    
+    int bytes = width * height * channels;
+    int numPixPerThread = (bytes + numOfThreads - 1) / numOfThreads;
+    int ind = threadID*numPixPerThread;
+    __syncthreads();
+
+    for(int k = 0; k < numPixPerThread && (ind + k) < bytes; k++){
+        int pixInd = ind + k;
+        shared_img[pixInd] = img[pixInd];
+    }
+
+    __syncthreads();
+    if(threadID == 0){
+        printf(" print finished transfer\n");
+    }
+
+
+    int blockMinX = threadIdx.x * xblock;
+    int blockMaxX = blockMinX + xblock;
+    int blockMinY = threadIdx.y * yblock;
+    int blockMaxY = blockMinY + yblock;
+
+    
+
+    blockMinX = blockMinX == 0 ? 1 : blockMinX;
+
+    //printf("Thread %d : threadIdx.x = %d, threadIdx.y = %d, blockIdx.x = %d, blockIdx.y = %d, \n", threadID, threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y); 
+    //printf("Thread %d: threadIdx.x= %d, threadIdx.y= %d, gridDim.x= %d, gridDim.y= %d, blockMinX= %d, blockMaxX= %d, blockMinY= %d, blockMaxY= %d\n", threadID, threadIdx.x, threadIdx.y, gridDim.x, gridDim.y, blockMinX, blockMaxX, blockMinY, blockMaxY);
+
+    for(int y = 0; y < blockMaxY && y < height-1; y++){
+        for(int x = 1; x < blockMaxX && x < width-1; x++){
+
+            unsigned char* pixel = shared_img + (x + width * y) * channels;
+            unsigned char* pixel_right = shared_img + ((x+1) + width * y) * channels;
+            unsigned char* pixel_bottom_left = shared_img + ((x-1) + width * (y+1)) * channels;
+            unsigned char* pixel_bottom = shared_img + (x + width * (y+1)) * channels;
+            unsigned char* pixel_bottom_right = shared_img + ((x+1) + width * (y+1)) * channels;
+
+            int oldR = static_cast<int>(pixel[0]);
+            int oldG = static_cast<int>(pixel[1]);
+            int oldB = static_cast<int>(pixel[1]);
+
+            int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
+            int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
+            int newB = round(FACTOR * oldB / 255.0) * (255/FACTOR);
+
+            pixel[0] = newR;
+            pixel[1] = newG;
+            pixel[2] = newB;
+
+            int qErrorR = oldR - newR;
+            int qErrorG = oldG - newG;
+            int qErrorB = oldB - newB;
+
+            pixel_right[0] = (uint8_t)(pixel_right[0] + (qErrorR * TOP_RIGHT_ERR_DIFF));
+            pixel_right[1] = (uint8_t)(pixel_right[1] + (qErrorG * TOP_RIGHT_ERR_DIFF));
+            pixel_right[2] = (uint8_t)(pixel_right[2] + (qErrorB * TOP_RIGHT_ERR_DIFF));
+
+            pixel_bottom_left[0] = (uint8_t)(pixel_bottom_left[0] + (qErrorR * BOT_LEFT_ERR_DIFF));
+            pixel_bottom_left[1] = (uint8_t)(pixel_bottom_left[1] + (qErrorG * BOT_LEFT_ERR_DIFF));
+            pixel_bottom_left[2] = (uint8_t)(pixel_bottom_left[2] + (qErrorB * BOT_LEFT_ERR_DIFF));
+
+            pixel_bottom[0] = (uint8_t)(pixel_bottom[0] + (qErrorR * BOT_MID_ERR_DIFF));
+            pixel_bottom[1] = (uint8_t)(pixel_bottom[1] + (qErrorG * BOT_MID_ERR_DIFF));
+            pixel_bottom[2] = (uint8_t)(pixel_bottom[2] + (qErrorB * BOT_MID_ERR_DIFF));
+
+            pixel_bottom_right[0] = (uint8_t)(pixel_bottom_right[0] + (qErrorR * BOT_RIGHT_ERR_DIFF));
+            pixel_bottom_right[1] = (uint8_t)(pixel_bottom_right[1] + (qErrorG * BOT_RIGHT_ERR_DIFF));
+            pixel_bottom_right[2] = (uint8_t)(pixel_bottom_right[2] + (qErrorB * BOT_RIGHT_ERR_DIFF));
+        }
+    }
+
+    return;
+}
+
+
 // kernelPfs -- (CUDA device code)
 // TODO: Specific work each cuda block work still needs to be divided.
 __global__ void kernelPfsBlock(unsigned char* img, int width, int height, int channels, int xblock, int yblock) {
@@ -52,7 +138,7 @@ __global__ void kernelPfsBlock(unsigned char* img, int width, int height, int ch
 
     //printf("Thread %d : threadIdx.x = %d, threadIdx.y = %d, blockIdx.x = %d, blockIdx.y = %d, \n", threadID, threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y); 
 
-    printf("Thread %d: threadIdx.x= %d, threadIdx.y= %d, gridDim.x= %d, gridDim.y= %d, blockMinX= %d, blockMaxX= %d, blockMinY= %d, blockMaxY= %d\n", threadID, threadIdx.x, threadIdx.y, gridDim.x, gridDim.y, blockMinX, blockMaxX, blockMinY, blockMaxY);
+    //printf("Thread %d: threadIdx.x= %d, threadIdx.y= %d, gridDim.x= %d, gridDim.y= %d, blockMinX= %d, blockMaxX= %d, blockMinY= %d, blockMaxY= %d\n", threadID, threadIdx.x, threadIdx.y, gridDim.x, gridDim.y, blockMinX, blockMaxX, blockMinY, blockMaxY);
 
     for(int y = 0; y < blockMaxY && y < height-1; y++){
         for(int x = 1; x < blockMaxX && x < width-1; x++){
@@ -62,12 +148,6 @@ __global__ void kernelPfsBlock(unsigned char* img, int width, int height, int ch
             unsigned char* pixel_bottom_left = img + ((x-1) + width * (y+1)) * channels;
             unsigned char* pixel_bottom = img + (x + width * (y+1)) * channels;
             unsigned char* pixel_bottom_right = img + ((x+1) + width * (y+1)) * channels;
-            
-            // unsigned char* pixel = img + (blockIdx.x + imageWidth * blockIdx.y) * channels;
-            // unsigned char* pixel_right = img + ((blockIdx.x+1) + imageWidth * blockIdx.y) * channels;
-            // unsigned char* pixel_bottom_left = img + ((blockIdx.x-1) + imageWidth * (blockIdx.y+1)) * channels;
-            // unsigned char* pixel_bottom = img + (blockIdx.x + imageWidth * (blockIdx.y+1)) * channels;
-            // unsigned char* pixel_bottom_right = img + ((blockIdx.x+1) + imageWidth * (blockIdx.y+1)) * channels;
 
             int oldR = static_cast<int>(pixel[0]);
             int oldG = static_cast<int>(pixel[1]);
@@ -142,7 +222,7 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
     double startKernelTime = CycleTimer::currentSeconds();
 
     // run kernel
-    kernelPfsBlock<<<gridDim, blockDim>>>(device_img, width, height, channels, xblock, yblock);
+    kernelPfsBlockFaster<<<gridDim, blockDim>>>(device_img, width, height, channels, xblock, yblock);
     //kernelPfsBlock<<<1, 1>>>(device_img, width, height, channels);
 
     cudaDeviceSynchronize();

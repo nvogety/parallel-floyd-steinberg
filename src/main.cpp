@@ -111,8 +111,8 @@ int main(void) {
     
 
     int width, height, channels;
-    unsigned char *img = stbi_load("../images/beach.png", &width, &height, &channels, 0);
-    unsigned char *og_img = stbi_load("../images/beach.png", &width, &height, &channels, 0);
+    unsigned char *img = stbi_load("../images/dog.png", &width, &height, &channels, 0);
+    unsigned char *og_img = stbi_load("../images/dog.png", &width, &height, &channels, 0);
     if(img == NULL) {
         printf("Error in loading the image\n");
         exit(1);
