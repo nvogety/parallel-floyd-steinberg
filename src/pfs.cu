@@ -33,6 +33,18 @@
 ///////////////////////////////////////////////////////////////////////////////////////
 
 
+///////////////////////////////////////////////////////////////////////////////////////
+// NEW STUFF
+struct GlobalConstants {
+    int imageWidth;
+    int imageHeight;
+    float* imageData;
+};
+
+__constant__ GlobalConstants cuConstRendererParams;
+///////////////////////////////////////////////////////////////////////////////////////
+
+
 __global__ void kernelPfsBlockFaster(unsigned char* img, int width, int height, int channels, int xblock, int yblock) {
     // Stage 1 -> Have all threads in block create a shared mem copy of img
     
@@ -209,10 +221,35 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
 
     // Allocate device memory buffers on the GPU using cudaMalloc
     //TODO: Slightly confused what needs to be malloced on device - not sure if this is correct
-    cudaMalloc(&device_img, bytes);
+    // May not need since we malloc to cudaDeviceImageData
+    // cudaMalloc(&device_img, bytes);
+
+
+    ///////////////////////////////////////////////////////////////////////////////////////
+    // NEW STUFF
+
+    // Idk how to compute size - i assume width * height
+    cudaMalloc(&cudaDeviceImageData, sizeof(float) * width * height);
+
+    GlobalConstants params;
+    params.imageWidth = width;
+    params.imageHeight = height;
+    params.imageData = cudaDeviceImageData;
+    cudaMemcpyToSymbol(cuConstRendererParams, &params, sizeof(GlobalConstants));
+    ///////////////////////////////////////////////////////////////////////////////////////
+
 
     // TODO copy input arrays to the GPU using cudaMemcpy
     cudaMemcpy(device_img, img, bytes, cudaMemcpyHostToDevice);
+    
+    ///////////////////////////////////////////////////////////////////////////////////////
+    // NEW STUFF
+    cudaMemcpy(img,
+        cudaDeviceImageData,
+        sizeof(float) * width * height,
+        cudaMemcpyDeviceToHost);
+    ///////////////////////////////////////////////////////////////////////////////////////
+
 
     printf(" Arrays Copied\n");
 
@@ -246,6 +283,8 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
     // free memory buffers on the GPU
     cudaFree(device_img);
 
+    //NEW STUFF
+    cudaFree(cudaDeviceImageData);
 }
 
 int cudaMain() {
