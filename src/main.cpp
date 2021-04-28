@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include <math.h>
+#include <omp.h>
 
 #include "CycleTimer.h"
 
@@ -12,6 +13,9 @@
 #include "stb_image/stb_image_write.h"
 
 using namespace std;
+
+#define FACTOR 4
+int NCORES = 8;
 
 void printCudaInfo();
 void pfsCuda(int width, int height, int channels, unsigned char *img);
@@ -103,6 +107,61 @@ void gray(unsigned char *img, int width, int height, int channels){
     free(gray_img);
 }
 
+void omp_parallel_dither(unsigned char *img, int width, int height, int channels){
+
+    int totalPixels = height * width;
+    #pragma omp parallel for num_threads(NCORES)
+    for(int y = 0; y < height-1; y++){
+        for(int x = 1; x < width-1; x++){
+            unsigned char* pixel = img + (x + width * y) * channels;
+            unsigned char* pixel_right = img + ((x+1) + width * y) * channels;
+            unsigned char* pixel_bottom_left = img + ((x-1) + width * (y+1)) * channels;
+            unsigned char* pixel_bottom = img + (x + width * (y+1)) * channels;
+            unsigned char* pixel_bottom_right = img + ((x+1) + width * (y+1)) * channels;
+
+            int oldR = static_cast<int>(pixel[0]);
+            int oldG = static_cast<int>(pixel[1]);
+            int oldB = static_cast<int>(pixel[1]);
+
+            int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
+            int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
+            int newB = round(FACTOR * oldB / 255.0) * (255/FACTOR);
+
+            int qErrorR = oldR - newR;
+            int qErrorG = oldG - newG;
+            int qErrorB = oldB - newB;
+
+            pixel[0] = newR;
+            pixel[1] = newG;
+            pixel[2] = newB;
+
+            pixel_right[0] = (uint8_t)(pixel_right[0] + (qErrorR * (7.0 / 16.0)));
+            pixel_right[1] = (uint8_t)(pixel_right[1] + (qErrorG * (7.0 / 16.0)));
+            pixel_right[2] = (uint8_t)(pixel_right[2] + (qErrorB * (7.0 / 16.0)));
+
+            pixel_bottom_left[0] = (uint8_t)(pixel_bottom_left[0] + (qErrorR * (3.0 / 16.0)));
+            pixel_bottom_left[1] = (uint8_t)(pixel_bottom_left[1] + (qErrorG * (3.0 / 16.0)));
+            pixel_bottom_left[2] = (uint8_t)(pixel_bottom_left[2] + (qErrorB * (3.0 / 16.0)));
+
+            pixel_bottom[0] = (uint8_t)(pixel_bottom[0] + (qErrorR * (5.0 / 16.0)));
+            pixel_bottom[1] = (uint8_t)(pixel_bottom[1] + (qErrorG * (5.0 / 16.0)));
+            pixel_bottom[2] = (uint8_t)(pixel_bottom[2] + (qErrorB * (5.0 / 16.0)));
+
+            pixel_bottom_right[0] = (uint8_t)(pixel_bottom_right[0] + (qErrorR * (1.0 / 16.0)));
+            pixel_bottom_right[1] = (uint8_t)(pixel_bottom_right[1] + (qErrorG * (1.0 / 16.0)));
+            pixel_bottom_right[2] = (uint8_t)(pixel_bottom_right[2] + (qErrorB * (1.0 / 16.0))); 
+        }
+    }
+    
+    cout << "Generated OMP Color Dithered image" << endl; 
+
+    stbi_write_png("../images/dither-omp.png", width, height, channels, img, width * channels);
+
+    cout << "Wrote OMP Color Dithered image" << endl; 
+
+    return;
+}
+
 // stb use from: https://solarianprogrammer.com/2019/06/10/c-programming-reading-writing-images-stb_image-libraries/
 int main(void) {
 
@@ -111,24 +170,30 @@ int main(void) {
     
 
     int width, height, channels;
-    unsigned char *img = stbi_load("../images/dog.png", &width, &height, &channels, 0);
-    unsigned char *og_img = stbi_load("../images/dog.png", &width, &height, &channels, 0);
+    unsigned char *img = stbi_load("../images/beach.png", &width, &height, &channels, 0);
+    unsigned char *og_img = stbi_load("../images/beach.png", &width, &height, &channels, 0);
+    unsigned char *omp_img = stbi_load("../images/beach.png", &width, &height, &channels, 0);
     if(img == NULL) {
         printf("Error in loading the image\n");
         exit(1);
     }
 
-    double startTime = CycleTimer::currentSeconds();
-
     cout << "Read image, width: " <<  width << ", height: " << height << ", channels: "<<channels << endl; 
-    color_dither(img, width, height, channels, 4);
 
+    double startTime = CycleTimer::currentSeconds();
+    color_dither(img, width, height, channels, 4);
     double endTime = CycleTimer::currentSeconds();
 
-    cout << "Time Taken: " << endTime - startTime << " seconds" << endl;
+    cout << "Time Taken for sequential: " << endTime - startTime << " seconds" << endl;
 
-    //gray(img, width, height, channels);
+    
+    cout << "Starting OMP Version..." << endl;
 
+    startTime = CycleTimer::currentSeconds();
+    omp_parallel_dither(omp_img, width, height, channels);
+    endTime = CycleTimer::currentSeconds();
+    cout << "Time Taken for OMP: " << endTime - startTime << " seconds" << endl;
+    
     cout << "Starting Parallel Version..." << endl;
 
     printCudaInfo();
@@ -137,6 +202,7 @@ int main(void) {
 
     stbi_image_free(img);
     stbi_image_free(og_img);
+    stbi_image_free(omp_img);
 
     
     return 0;

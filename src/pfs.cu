@@ -5,10 +5,7 @@
 #include <math.h>
 #include "CycleTimer.h"
 
-
-
-#define BLOCKDIMCOMP 8
-#define BLOCKSIZE 4 // BLOCKDIMCOMP^2
+#define BLOCKDIMCOMP 32
 #define FACTOR 4
 
 #define TOP_RIGHT_ERR_DIFF (7.0 / 16.0)
@@ -190,7 +187,7 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
 
     printf(" In CUDA code\n");
 
-    stbi_write_png("../images/before-parallel.png", width, height, channels, img, width * channels);
+    //stbi_write_png("../images/before-parallel.png", width, height, channels, img, width * channels);
 
     // Define dimensions for work assignment
     // dim3 blockDim(BLOCKDIMCOMP, BLOCKDIMCOMP);
@@ -222,7 +219,7 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
     double startKernelTime = CycleTimer::currentSeconds();
 
     // run kernel
-    kernelPfsBlockFaster<<<gridDim, blockDim>>>(device_img, width, height, channels, xblock, yblock);
+    kernelPfsBlock<<<gridDim, blockDim>>>(device_img, width, height, channels, xblock, yblock);
     //kernelPfsBlock<<<1, 1>>>(device_img, width, height, channels);
 
     cudaDeviceSynchronize();
