@@ -16,6 +16,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../stb_image/stb_image_write.h"
 
+#define FACTOR 4
+
 using namespace std;
 
 double computeThread(int processCount, int processID){
@@ -77,32 +79,104 @@ double computeThread(int processCount, int processID){
       // }
     }
   }
-  int totalElems = width * height * channels;
-  for(int i = startInd; i < endInd && i < totalElems; i++ ){
-      int val = static_cast<int>(image[i]);
-      image[i] = (uint8_t)(1);
-      image[i] = (uint8_t)(2);
-      image[i] = (uint8_t)(3);
 
-      image[i] = (uint8_t)(4);
-      image[i] = (uint8_t)(5);
-      image[i] = (uint8_t)(6);
-
-      image[i] = (uint8_t)(7);
-      image[i] = (uint8_t)(8);
-      image[i] = (uint8_t)(9);
-
-      image[i] = (uint8_t)(10);
-      image[i] = (uint8_t)(11);
-      image[i] = (uint8_t)(12);
-
-      image[i] = (uint8_t)(13);
-      image[i] = (uint8_t)(14);
-      image[i] = (uint8_t)(15);
-
-      image[i] = (uint8_t)(val+processID);
+  int rowStart = numRowsPerProc*computeProcID;
+  int rowEnd = numRowsPerProc*(computeProcID+1);
+  for(int y = rowStart; y < rowEnd; y++){
+    for(int x = 0; x < width; x++){
+      unsigned char* pixel = image + (x + width * y) * channels;
       
+      unsigned char* pixel_right = NULL;
+      unsigned char* pixel_bottom_left = NULL;
+      unsigned char* pixel_bottom = NULL;
+      unsigned char* pixel_bottom_right = NULL;
+
+      if(x+1 < width){
+        pixel_right = image + ((x+1) + width * y) * channels;
+      }
+      
+      if(x-1 >= 0 && y+1 < height){
+        pixel_bottom_left = image + ((x-1) + width * (y+1)) * channels;
+      }
+      
+      if(y+1 < height){
+        pixel_bottom = image + (x + width * (y+1)) * channels;
+      }
+      
+      if(x+1 < width && y+1 < height){
+        pixel_bottom_right = image + ((x+1) + width * (y+1)) * channels;
+      }
+
+      int oldR = static_cast<int>(pixel[0]);
+      int oldG = static_cast<int>(pixel[1]);
+      int oldB = static_cast<int>(pixel[2]);
+
+      int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
+      int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
+      int newB = round(FACTOR * oldB / 255.0) * (255/FACTOR);
+
+      int qErrorR = oldR - newR;
+      int qErrorG = oldG - newG;
+      int qErrorB = oldB - newB;
+
+      pixel[0] = newR;
+      pixel[1] = newG;
+      pixel[2] = newB;
+
+      if(pixel_right != NULL){
+        pixel_right[0] = (uint8_t)(pixel_right[0] + (qErrorR * (7.0 / 16.0)));
+        pixel_right[1] = (uint8_t)(pixel_right[1] + (qErrorG * (7.0 / 16.0)));
+        pixel_right[2] = (uint8_t)(pixel_right[2] + (qErrorB * (7.0 / 16.0)));
+      }
+      
+      if(pixel_bottom_left != NULL){
+        pixel_bottom_left[0] = (uint8_t)(pixel_bottom_left[0] + (qErrorR * (3.0 / 16.0)));
+        pixel_bottom_left[1] = (uint8_t)(pixel_bottom_left[1] + (qErrorG * (3.0 / 16.0)));
+        pixel_bottom_left[2] = (uint8_t)(pixel_bottom_left[2] + (qErrorB * (3.0 / 16.0)));
+      }
+
+      if(pixel_bottom != NULL){
+        pixel_bottom[0] = (uint8_t)(pixel_bottom[0] + (qErrorR * (5.0 / 16.0)));
+        pixel_bottom[1] = (uint8_t)(pixel_bottom[1] + (qErrorG * (5.0 / 16.0)));
+        pixel_bottom[2] = (uint8_t)(pixel_bottom[2] + (qErrorB * (5.0 / 16.0)));
+      }
+
+      if(pixel_bottom_right != NULL){
+        pixel_bottom_right[0] = (uint8_t)(pixel_bottom_right[0] + (qErrorR * (1.0 / 16.0)));
+        pixel_bottom_right[1] = (uint8_t)(pixel_bottom_right[1] + (qErrorG * (1.0 / 16.0)));
+        pixel_bottom_right[2] = (uint8_t)(pixel_bottom_right[2] + (qErrorB * (1.0 / 16.0))); 
+      }
+
+    }
   }
+
+  // int totalElems = width * height * channels;
+  // for(int i = startInd; i < endInd && i < totalElems; i++ ){
+
+  //     int val = static_cast<int>(image[i]);
+  //     image[i] = (uint8_t)(1);
+  //     image[i] = (uint8_t)(2);
+  //     image[i] = (uint8_t)(3);
+
+  //     image[i] = (uint8_t)(4);
+  //     image[i] = (uint8_t)(5);
+  //     image[i] = (uint8_t)(6);
+
+  //     image[i] = (uint8_t)(7);
+  //     image[i] = (uint8_t)(8);
+  //     image[i] = (uint8_t)(9);
+
+  //     image[i] = (uint8_t)(10);
+  //     image[i] = (uint8_t)(11);
+  //     image[i] = (uint8_t)(12);
+
+  //     image[i] = (uint8_t)(13);
+  //     image[i] = (uint8_t)(14);
+  //     image[i] = (uint8_t)(15);
+
+  //     image[i] = (uint8_t)(val+processID); 
+  // }
+
   cout << "Proc " << processID <<": Finished Copying elems"<< endl;
   
 
@@ -204,13 +278,18 @@ double writeThread(int processCount){
     }
   }
 
-  cout << "Proc 1: Reading finalImage now" << endl;
-  for(int i = 0; i < totalElems; i++ ){
-    if (i == 0 || finalImage[i] != finalImage[i-1]){
-      int val = static_cast<int>(finalImage[i]);
-      cout << "finalImage[" << i <<  "] = " << val-2 << endl;
-    }
-  }
+  cout << "Proc 1: Writing finalImage now" << endl;
+  // for(int i = 0; i < totalElems; i++ ){
+  //   // if (i == 0 || finalImage[i] != finalImage[i-1]){
+  //   //   int val = static_cast<int>(finalImage[i]);
+  //   //   cout << "finalImage[" << i <<  "] = " << val-2 << endl;
+  //   // }
+  //   // int val = static_cast<int>(finalImage[i]);
+  //   // cout << "finalImage[" << i <<  "] = " << val-2 << endl;
+  // }
+
+  stbi_write_png("../../images/mpi-dither.png", width, height, channels, finalImage, width * channels);
+  cout << "Proc 1: Wrote finalImage now" << endl;
   
   cout << "Proc 1: Returning" << endl;
   free(finalImage);
@@ -228,11 +307,17 @@ double writeThread(int processCount){
 
 double readThread(int processCount){
   //int totalComputeProcs = processCount - 2;
-  int width = 200;
-  int height = 200;
-  int channels = 3;
+  // int width = 180;
+  // int height = 180;
+  // int channels = 3;
+  int width;
+  int height;
+  int channels;
 
-  unsigned char *img = (unsigned char *) calloc(width * height * channels, sizeof(unsigned char));
+
+  // unsigned char *img = (unsigned char *) calloc(width * height * channels, sizeof(unsigned char));
+  unsigned char *img = stbi_load("../../images/cat.png", &width, &height, &channels, 0);
+  cout << "Proc 0: width=" << width << ", height=" << height << ", channels=" << channels << endl;
   
   for(int proc = 1; proc < processCount; proc++){
     MPI_Request request1;
