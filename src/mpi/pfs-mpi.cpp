@@ -20,6 +20,14 @@
 
 using namespace std;
 
+// Tag translations:
+// 0 = send width
+// 1 = send height
+// 2 = send original image
+// 3 = send processed image
+// 4 = computer thread done message
+
+
 double computeThread(int processCount, int processID){
   int width;
   int height;
@@ -64,7 +72,7 @@ double computeThread(int processCount, int processID){
     } else {
       //cout << "Proc " << processID <<": In image receive" << endl;
       //cout << "Proc " << processID << ": width=" << width <<  ", height=" << height << ", numRows=" << numRowsPerProc <<  ", startInd="<< startInd << ", endInd=" << endInd << endl;
-      image = (unsigned char *) malloc(width * height * channels * sizeof(unsigned char));
+      image = (unsigned char *) malloc(width * numRowsPerProc * channels * sizeof(unsigned char));
       //cout << "Proc " << processID <<": Mallocd" << endl;
       MPI_Get_count(&status, MPI_UNSIGNED_CHAR, &count);
       //cout << "Proc " << processID <<": Count of elems=" << count << endl;
@@ -80,12 +88,12 @@ double computeThread(int processCount, int processID){
     }
   }
 
-  int rowStart = numRowsPerProc*computeProcID;
-  int rowEnd = numRowsPerProc*(computeProcID+1);
+  // int rowStart = numRowsPerProc*computeProcID;
+  // int rowEnd = numRowsPerProc*(computeProcID+1);
   // if(processID == 2){
   //   //cout << "Proc 2 " << rowStart << "to" << rowEnd << endl;
   // }
-  for(int y = rowStart; y < rowEnd; y++){
+  for(int y = 0; y < numRowsPerProc; y++){
     for(int x = 0; x < width; x++){
       // if(processID == 7){
       //   //cout << "Proc 7 " << "index: " << (x + width * y) * channels << endl;
@@ -101,15 +109,15 @@ double computeThread(int processCount, int processID){
         pixel_right = image + ((x+1) + width * y) * channels;
       }
       
-      if(x-1 >= 0 && y+1 < height){
+      if(x-1 >= 0 && y+1 < numRowsPerProc){
         pixel_bottom_left = image + ((x-1) + width * (y+1)) * channels;
       }
       
-      if(y+1 < height){
+      if(y+1 < numRowsPerProc){
         pixel_bottom = image + (x + width * (y+1)) * channels;
       }
       
-      if(x+1 < width && y+1 < height){
+      if(x+1 < width && y+1 < numRowsPerProc){
         pixel_bottom_right = image + ((x+1) + width * (y+1)) * channels;
       }
 
@@ -166,7 +174,7 @@ double computeThread(int processCount, int processID){
 
   MPI_Request request2;
   //cout << "Proc " << processID <<": Before sent computed elems to proc 1 "<< endl;
-  MPI_Isend(image, width * height * channels, MPI_UNSIGNED_CHAR, 1, 3, MPI_COMM_WORLD, &request2);
+  MPI_Isend(image, width * numRowsPerProc * channels, MPI_UNSIGNED_CHAR, 1, 3, MPI_COMM_WORLD, &request2);
   MPI_Request_free(&request2);
   //cout << "Proc " << processID <<": sent computed elems to proc 1 "<< endl;
 
@@ -232,7 +240,7 @@ double writeThread(int processCount){
     //cout << "Proc 1: Recieved computation from proc " << source << " with tag " << tag << endl;
     if(tag == 3){
       finishedProcesses += 1;
-      unsigned char *imageFromProc = (unsigned char *) malloc(width * height * channels * sizeof(unsigned char));
+      unsigned char *imageFromProc = (unsigned char *) malloc(width * numRowsPerProc * channels * sizeof(unsigned char));
       //cout << "Proc 1: Malloc'd imageFromProc " << endl;
       MPI_Get_count(&status, MPI_UNSIGNED_CHAR, &count);
       MPI_Recv(imageFromProc, count, MPI_UNSIGNED_CHAR, source, tag, MPI_COMM_WORLD, &status);
@@ -242,7 +250,7 @@ double writeThread(int processCount){
       int endInd = width*channels*numRowsPerProc*(computeProcID+1);
       //cout << "Proc 1: computeProcID = " << computeProcID << ",startInd = " << startInd << ", endInd = " << endInd << endl;
       for(int i = startInd; i < endInd && i < totalElems; i++ ){
-        finalImage[i] = imageFromProc[i];
+        finalImage[i] = imageFromProc[i-startInd];
       }
       //cout << "Proc 1: Copied over imageFromProc to finalImage " << endl;
       free(imageFromProc);
@@ -275,14 +283,6 @@ double writeThread(int processCount){
 
 }
 
-// Tag translations:
-// 0 = send width
-// 1 = send height
-// 2 = send original image
-// 3 = send processed image
-// 4 = computer thread done message
-
-
 double readThread(int processCount){
   int totalComputeProcs = processCount - 2;
   // int width = 1000;
@@ -297,9 +297,9 @@ double readThread(int processCount){
 
 
   //unsigned char *img = (unsigned char *) calloc(width * height * channels, sizeof(unsigned char));
-  unsigned char *img = stbi_load("../../images/landscape.png", &width, &height, &channels, 0);
+  unsigned char *img = stbi_load("../../images/road.png", &width, &height, &channels, 0);
   //cout << "Proc 0: width=" << width << ", height=" << height << ", channels=" << channels << endl;
-  
+  int numRowsPerProc = (height + (totalComputeProcs - 1)) / totalComputeProcs;
   for(int proc = 1; proc < processCount; proc++){
     MPI_Request request1;
     MPI_Isend(&width, 1, MPI_INT, proc, 0, MPI_COMM_WORLD, &request1);
@@ -309,8 +309,11 @@ double readThread(int processCount){
     MPI_Request_free(&request2);
     
     if(proc > 1){
+      int computeProcID = proc - 2;
+      int startInd = width*numRowsPerProc*channels*computeProcID;
+
       MPI_Request request3;
-      MPI_Isend(img, width * height * channels, MPI_UNSIGNED_CHAR, proc, 2, MPI_COMM_WORLD, &request3);
+      MPI_Isend(img + startInd, width * numRowsPerProc * channels, MPI_UNSIGNED_CHAR, proc, 2, MPI_COMM_WORLD, &request3);
       MPI_Request_free(&request3);
     }
     
@@ -342,40 +345,16 @@ double readThread(int processCount){
       }
     }
   }
-
-  // int numRowsPerProc = (height + (totalComputeProcs - 1)) / totalComputeProcs;
-  // //cout << "Proc 0: numRowsPerProc=" << numRowsPerProc << endl;
-  // unsigned char *img_blocks = (unsigned char *) malloc(width * height * channels * sizeof(unsigned char));
-
-  // for(int proc = 0; proc < totalComputeProcs; proc++){
-  //   //cout << "Proc 0: For proc " << proc << " -> Starting from index " << width*channels*numRowsPerProc*proc << " to " << width*channels*numRowsPerProc*(proc+1 << endl;
-  //   int block_ind = 0;
-  //   for(int i = width*channels*numRowsPerProc*proc; i < width*channels*numRowsPerProc*(proc+1) and i < height; i++ ){
-  //     //cout << "Proc 0: index " << i << endl;
-  //     img_blocks[proc][block_ind] = img[i];
-  //     block_ind++;
-  //   }
-  //   //cout << "Proc 0: Sent to proc " << proc << endl;
-  // }
-
   return 0.0;
 }
 
 int main(int argc, char **argv) {
-
-  // if(argc < 2){
-  //   //cout << "Enter a filename" << endl;
-  //   return -1;
-  // }
-
-  // char *filename = argv[1];
 
   int processID, processCount;
   MPI_Init(NULL, NULL);
   MPI_Comm_rank( MPI_COMM_WORLD, &processID );
   MPI_Comm_size( MPI_COMM_WORLD, &processCount );
 
-  // //cout << "Hi from process" << processID << endl;
 
   double t1 = MPI_Wtime();
   double t2;
@@ -392,6 +371,5 @@ int main(int argc, char **argv) {
   
   MPI_Finalize();
 
-//   return 0;
     return 0;
 }
