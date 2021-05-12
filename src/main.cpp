@@ -32,7 +32,7 @@ void color_dither(unsigned char *img, int width, int height, int channels, int f
 
             int oldR = static_cast<int>(pixel[0]);
             int oldG = static_cast<int>(pixel[1]);
-            int oldB = static_cast<int>(pixel[1]);
+            int oldB = static_cast<int>(pixel[2]);
 
             int newR = round(factor * oldR / 255.0) * (255/factor);
             int newG = round(factor * oldG / 255.0) * (255/factor);
@@ -127,7 +127,7 @@ int* calcQError(unsigned char *pixel) {
     int *qErrors = new int[3];
     int oldR = static_cast<int>(pixel[0]);
     int oldG = static_cast<int>(pixel[1]);
-    int oldB = static_cast<int>(pixel[1]);
+    int oldB = static_cast<int>(pixel[2]);
 
     int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
     int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);

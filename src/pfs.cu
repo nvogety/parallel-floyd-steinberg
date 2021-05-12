@@ -160,7 +160,7 @@ __global__ void kernelPfsBlock(unsigned char* img, int width, int height, int ch
 
             int oldR = static_cast<int>(pixel[0]);
             int oldG = static_cast<int>(pixel[1]);
-            int oldB = static_cast<int>(pixel[1]);
+            int oldB = static_cast<int>(pixel[2]);
 
             int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
             int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
