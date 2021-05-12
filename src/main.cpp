@@ -32,7 +32,7 @@ void color_dither(unsigned char *img, int width, int height, int channels, int f
 
             int oldR = static_cast<int>(pixel[0]);
             int oldG = static_cast<int>(pixel[1]);
-            int oldB = static_cast<int>(pixel[1]);
+            int oldB = static_cast<int>(pixel[2]);
 
             int newR = round(factor * oldR / 255.0) * (255/factor);
             int newG = round(factor * oldG / 255.0) * (255/factor);
@@ -107,51 +107,106 @@ void gray(unsigned char *img, int width, int height, int channels){
     free(gray_img);
 }
 
-void omp_parallel_dither(unsigned char *img, int width, int height, int channels){
 
-    int totalPixels = height * width;
-    #pragma omp parallel for num_threads(NCORES)
-    for(int y = 0; y < height-1; y++){
-        for(int x = 1; x < width-1; x++){
-            unsigned char* pixel = img + (x + width * y) * channels;
-            unsigned char* pixel_right = img + ((x+1) + width * y) * channels;
-            unsigned char* pixel_bottom_left = img + ((x-1) + width * (y+1)) * channels;
-            unsigned char* pixel_bottom = img + (x + width * (y+1)) * channels;
-            unsigned char* pixel_bottom_right = img + ((x+1) + width * (y+1)) * channels;
 
-            int oldR = static_cast<int>(pixel[0]);
-            int oldG = static_cast<int>(pixel[1]);
-            int oldB = static_cast<int>(pixel[1]);
+unsigned char ** getPixels(unsigned char *img, int width, int channels, int x, int y) {
 
-            int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
-            int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
-            int newB = round(FACTOR * oldB / 255.0) * (255/FACTOR);
+    unsigned char** newArr = new unsigned char*[5];
 
-            int qErrorR = oldR - newR;
-            int qErrorG = oldG - newG;
-            int qErrorB = oldB - newB;
+    newArr[0] = img + (x + width * y) * channels;
+    newArr[1] = img + ((x+1) + width * y) * channels;
+    newArr[2] = img + ((x-1) + width * (y+1)) * channels;
+    newArr[3] = img + (x + width * (y+1)) * channels;
+    newArr[4] = img + ((x+1) + width * (y+1)) * channels;
 
-            pixel[0] = newR;
-            pixel[1] = newG;
-            pixel[2] = newB;
+    return newArr;
+} 
 
-            pixel_right[0] = (uint8_t)(pixel_right[0] + (qErrorR * (7.0 / 16.0)));
-            pixel_right[1] = (uint8_t)(pixel_right[1] + (qErrorG * (7.0 / 16.0)));
-            pixel_right[2] = (uint8_t)(pixel_right[2] + (qErrorB * (7.0 / 16.0)));
+int* calcQError(unsigned char *pixel) {
 
-            pixel_bottom_left[0] = (uint8_t)(pixel_bottom_left[0] + (qErrorR * (3.0 / 16.0)));
-            pixel_bottom_left[1] = (uint8_t)(pixel_bottom_left[1] + (qErrorG * (3.0 / 16.0)));
-            pixel_bottom_left[2] = (uint8_t)(pixel_bottom_left[2] + (qErrorB * (3.0 / 16.0)));
+    int *qErrors = new int[3];
+    int oldR = static_cast<int>(pixel[0]);
+    int oldG = static_cast<int>(pixel[1]);
+    int oldB = static_cast<int>(pixel[2]);
 
-            pixel_bottom[0] = (uint8_t)(pixel_bottom[0] + (qErrorR * (5.0 / 16.0)));
-            pixel_bottom[1] = (uint8_t)(pixel_bottom[1] + (qErrorG * (5.0 / 16.0)));
-            pixel_bottom[2] = (uint8_t)(pixel_bottom[2] + (qErrorB * (5.0 / 16.0)));
+    int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
+    int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
+    int newB = round(FACTOR * oldB / 255.0) * (255/FACTOR);
 
-            pixel_bottom_right[0] = (uint8_t)(pixel_bottom_right[0] + (qErrorR * (1.0 / 16.0)));
-            pixel_bottom_right[1] = (uint8_t)(pixel_bottom_right[1] + (qErrorG * (1.0 / 16.0)));
-            pixel_bottom_right[2] = (uint8_t)(pixel_bottom_right[2] + (qErrorB * (1.0 / 16.0))); 
+    pixel[0] = newR;
+    pixel[1] = newG;
+    pixel[2] = newB;
+
+    qErrors[0] = oldR - newR;
+    qErrors[1] = oldG - newG;
+    qErrors[2] = oldB - newB;    
+    return qErrors;
+}
+
+void updatePixels(unsigned char** pixelVars, int* qErrors) {
+
+    unsigned char* pixel_right = pixelVars[1];
+    unsigned char* pixel_bottom_left = pixelVars[2];
+    unsigned char* pixel_bottom = pixelVars[3];
+    unsigned char* pixel_bottom_right = pixelVars[4];
+
+    #pragma omp for 
+    for (int i = 0; i < 3; i++) {
+        int qError = qErrors[i];
+
+        #pragma omp atomic
+        pixel_right[i] += (qError * (7.0 / 16.0));
+
+        #pragma omp atomic
+        pixel_bottom_left[i] += (qError * (3.0 / 16.0));
+
+        #pragma omp atomic
+        pixel_bottom[i] += (qError * (5.0 / 16.0));
+
+        #pragma omp atomic
+        pixel_bottom_right[i] += (qError * (1.0 / 16.0));
+    }
+}
+
+// With the loop unroll - speedup observed was 1.51x
+// on roadster image : Seq - 0.51341s | 8 cores - 0.339s 
+void dither(unsigned char *img, int newStart, int width, int height, int channels) {
+
+    for(int y = newStart; y < newStart + height - 1; y++){
+        for(int x = 1; x < (width-1) - 1; x+=2){
+
+                unsigned char** pixelVars = getPixels(img, width, channels, x, y);
+                unsigned char* pixel = pixelVars[0];
+                int* qErrors = calcQError(pixel);
+                updatePixels(pixelVars, qErrors);
+
+                unsigned char** pixelVars2 = getPixels(img, width, channels, x + 1, y);
+                unsigned char* pixel2 = pixelVars2[0];
+                int* qErrors2 = calcQError(pixel2);
+                updatePixels(pixelVars2, qErrors2);  
         }
     }
+}
+
+
+
+
+
+// Blocking Strategy Adapted from : https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.734.9930&rep=rep1&type=pdf 
+void omp_parallel_dither(unsigned char *img, int width, int height, int channels){
+
+    // int totalPixels = height * width;
+
+
+    #pragma omp parallel for num_threads(NCORES)
+    for (int i = 0; i < NCORES; i++) {
+        int dividedHeight = height / omp_get_num_threads();
+        int newStart = dividedHeight * i; 
+
+        // cout << "New Start : " << newStart <<  ", Thread: " << omp_get_thread_num() << endl;
+        dither(img, newStart, width, dividedHeight, channels);
+    }
+    
     
     cout << "Generated OMP Color Dithered image" << endl; 
 
@@ -162,6 +217,9 @@ void omp_parallel_dither(unsigned char *img, int width, int height, int channels
     return;
 }
 
+
+
+
 // stb use from: https://solarianprogrammer.com/2019/06/10/c-programming-reading-writing-images-stb_image-libraries/
 int main(void) {
 
@@ -170,9 +228,9 @@ int main(void) {
     
 
     int width, height, channels;
-    unsigned char *img = stbi_load("../images/beach.png", &width, &height, &channels, 0);
-    unsigned char *og_img = stbi_load("../images/beach.png", &width, &height, &channels, 0);
-    unsigned char *omp_img = stbi_load("../images/beach.png", &width, &height, &channels, 0);
+    unsigned char *img = stbi_load("../images/roadster.png", &width, &height, &channels, 0);
+    unsigned char *og_img = stbi_load("../images/roadster.png", &width, &height, &channels, 0);
+    unsigned char *omp_img = stbi_load("../images/roadster.png", &width, &height, &channels, 0);
     if(img == NULL) {
         printf("Error in loading the image\n");
         exit(1);
@@ -196,8 +254,8 @@ int main(void) {
     
     cout << "Starting Parallel Version..." << endl;
 
-    printCudaInfo();
-    pfsCuda(width, height, channels, og_img);
+    //printCudaInfo();
+    //pfsCuda(width, height, channels, og_img);
 
 
     stbi_image_free(img);
