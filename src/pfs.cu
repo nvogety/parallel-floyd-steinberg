@@ -1,3 +1,6 @@
+// Note: this file outlines a few unsuccesful attempts at getting a CUDA version of the algorithm to work
+// but failed to produce speedup. Check out ./main.cpp for the OMP version and /mpi for the MPI version
+
 #include <stdio.h>
 #include <string>
 #include <algorithm>
@@ -33,8 +36,6 @@
 ///////////////////////////////////////////////////////////////////////////////////////
 
 
-///////////////////////////////////////////////////////////////////////////////////////
-// NEW STUFF
 struct GlobalConstants {
     int imageWidth;
     int imageHeight;
@@ -43,11 +44,10 @@ struct GlobalConstants {
 };
 
 __constant__ GlobalConstants cuConstRendererParams;
-///////////////////////////////////////////////////////////////////////////////////////
 
-
+// Shareed memory attempt - memory caps out! Do not use!
 __global__ void kernelPfsBlockFaster(unsigned char* img, int width, int height, int channels, int xblock, int yblock) {
-    // Stage 1 -> Have all threads in block create a shared mem copy of img
+    // Have all threads in block create a shared mem copy of img
     
     __shared__ unsigned char shared_img[20000];
 
@@ -82,9 +82,6 @@ __global__ void kernelPfsBlockFaster(unsigned char* img, int width, int height, 
 
     blockMinX = blockMinX == 0 ? 1 : blockMinX;
 
-    //printf("Thread %d : threadIdx.x = %d, threadIdx.y = %d, blockIdx.x = %d, blockIdx.y = %d, \n", threadID, threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y); 
-    //printf("Thread %d: threadIdx.x= %d, threadIdx.y= %d, gridDim.x= %d, gridDim.y= %d, blockMinX= %d, blockMaxX= %d, blockMinY= %d, blockMaxY= %d\n", threadID, threadIdx.x, threadIdx.y, gridDim.x, gridDim.y, blockMinX, blockMaxX, blockMinY, blockMaxY);
-
     for(int y = 0; y < blockMaxY && y < height-1; y++){
         for(int x = 1; x < blockMaxX && x < width-1; x++){
 
@@ -96,7 +93,7 @@ __global__ void kernelPfsBlockFaster(unsigned char* img, int width, int height, 
 
             int oldR = static_cast<int>(pixel[0]);
             int oldG = static_cast<int>(pixel[1]);
-            int oldB = static_cast<int>(pixel[1]);
+            int oldB = static_cast<int>(pixel[2]);
 
             int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
             int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
@@ -132,11 +129,9 @@ __global__ void kernelPfsBlockFaster(unsigned char* img, int width, int height, 
 }
 
 
-// kernelPfs -- (CUDA device code)
-// TODO: Specific work each cuda block work still needs to be divided.
+// Original with no shared memory - Very slow!
 __global__ void kernelPfsBlock(unsigned char* img, int width, int height, int channels, int xblock, int yblock) {
 
-    // Boundary of box we are computing -> Don't know if this is useful but for conceptual understanding
     int blockMinX = threadIdx.x * xblock;
     int blockMaxX = blockMinX + xblock;
     int blockMinY = threadIdx.y * yblock;
@@ -145,10 +140,6 @@ __global__ void kernelPfsBlock(unsigned char* img, int width, int height, int ch
     int threadID =  threadIdx.y * blockDim.x + threadIdx.x;
 
     blockMinX = blockMinX == 0 ? 1 : blockMinX;
-
-    //printf("Thread %d : threadIdx.x = %d, threadIdx.y = %d, blockIdx.x = %d, blockIdx.y = %d, \n", threadID, threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y); 
-
-    //printf("Thread %d: threadIdx.x= %d, threadIdx.y= %d, gridDim.x= %d, gridDim.y= %d, blockMinX= %d, blockMaxX= %d, blockMinY= %d, blockMaxY= %d\n", threadID, threadIdx.x, threadIdx.y, gridDim.x, gridDim.y, blockMinX, blockMaxX, blockMinY, blockMaxY);
 
     for(int y = 0; y < blockMaxY && y < height-1; y++){
         for(int x = 1; x < blockMaxX && x < width-1; x++){
@@ -161,7 +152,7 @@ __global__ void kernelPfsBlock(unsigned char* img, int width, int height, int ch
 
             int oldR = static_cast<int>(pixel[0]);
             int oldG = static_cast<int>(pixel[1]);
-            int oldB = static_cast<int>(pixel[1]);
+            int oldB = static_cast<int>(pixel[2]);
 
             int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
             int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
@@ -196,9 +187,9 @@ __global__ void kernelPfsBlock(unsigned char* img, int width, int height, int ch
     return;
 }
 
+// Trying with global params, like A2 - very similar performance!
 __global__ void kernelPfsBlockParams(int width, int height, int channels, int xblock, int yblock) {
 
-    // Boundary of box we are computing -> Don't know if this is useful but for conceptual understanding
     int blockMinX = threadIdx.x * xblock;
     int blockMaxX = blockMinX + xblock;
     int blockMinY = threadIdx.y * yblock;
@@ -208,14 +199,9 @@ __global__ void kernelPfsBlockParams(int width, int height, int channels, int xb
 
     blockMinX = blockMinX == 0 ? 1 : blockMinX;
 
-    //printf("Thread %d : threadIdx.x = %d, threadIdx.y = %d, blockIdx.x = %d, blockIdx.y = %d, \n", threadID, threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y); 
-
-    //printf("Thread %d: threadIdx.x= %d, threadIdx.y= %d, gridDim.x= %d, gridDim.y= %d, blockMinX= %d, blockMaxX= %d, blockMinY= %d, blockMaxY= %d\n", threadID, threadIdx.x, threadIdx.y, gridDim.x, gridDim.y, blockMinX, blockMaxX, blockMinY, blockMaxY);
-
     for(int y = 0; y < blockMaxY && y < height-1; y++){
         for(int x = 1; x < blockMaxX && x < width-1; x++){
 
-            //(float4*)(&cuConstRendererParams.imageData[4 * (pixelY * cuConstRendererParams.imageWidth + pixelX)])
             unsigned char* pixel = cuConstRendererParams.imageData + (x + width * y) * channels;
             unsigned char* pixel_right = cuConstRendererParams.imageData + ((x+1) + width * y) * channels;
             unsigned char* pixel_bottom_left = cuConstRendererParams.imageData + ((x-1) + width * (y+1)) * channels;
@@ -224,7 +210,7 @@ __global__ void kernelPfsBlockParams(int width, int height, int channels, int xb
 
             int oldR = static_cast<int>(pixel[0]);
             int oldG = static_cast<int>(pixel[1]);
-            int oldB = static_cast<int>(pixel[1]);
+            int oldB = static_cast<int>(pixel[2]);
 
             int newR = round(FACTOR * oldR / 255.0) * (255/FACTOR);
             int newG = round(FACTOR * oldG / 255.0) * (255/FACTOR);
@@ -263,29 +249,17 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
 
     printf(" In CUDA code\n");
 
-    //stbi_write_png("../images/before-parallel.png", width, height, channels, img, width * channels);
-
-    // Define dimensions for work assignment
-    // dim3 blockDim(BLOCKDIMCOMP, BLOCKDIMCOMP);
-    // dim3 gridDim((width + blockDim.x - 1) / blockDim.x, (height + blockDim.y - 1) / blockDim.y);
-
     dim3 blockDim(BLOCKDIMCOMP, BLOCKDIMCOMP);
     dim3 gridDim(1, 1);
-    printf(" Set dims\n");
 
     int xblock = (width + blockDim.x - 1) / blockDim.x;
     int yblock = (height + blockDim.y - 1) / blockDim.y;
-    printf(" Set y block, x blcok\n");
 
     int bytes = sizeof(uint8_t) * width * height * channels;
 
     unsigned char *device_img;
     unsigned char *result = new unsigned char[width * height * channels];
 
-    printf(" Set arrays\n");
-
-    ///////////////////////////////////////////////////////////////////////////////////////
-    // NEW STUFF
 
     unsigned char *cudaDeviceImageData;
 
@@ -299,7 +273,6 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
     params.imageChannels = channels;
     params.imageData = cudaDeviceImageData;
     cudaMemcpyToSymbol(cuConstRendererParams, &params, sizeof(GlobalConstants));
-    ///////////////////////////////////////////////////////////////////////////////////////
 
     cudaMalloc(&device_img, bytes);
     cudaMemcpy(device_img, img, bytes, cudaMemcpyHostToDevice);
@@ -310,9 +283,8 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
     double startKernelTime = CycleTimer::currentSeconds();
 
     // run kernel
+    // Change this to try our three different approaches
     kernelPfsBlockParams<<<gridDim, blockDim>>>(width, height, channels, xblock, yblock);
-    //kernelPfsBlock<<<gridDim, blockDim>>>(device_img, width, height, channels, xblock, yblock);
-    //kernelPfsBlock<<<1, 1>>>(device_img, width, height, channels);
 
     cudaDeviceSynchronize();
     double endKernelTime = CycleTimer::currentSeconds();
@@ -321,11 +293,7 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
     double kernelDuration = endKernelTime - startKernelTime;
     printf(" Kernel Time: %f\n", kernelDuration);
    
-    // copy result from GPU using cudaMemcpy: Idea is to copy computed image to local
-    // cudaMemcpy(result, device_img, bytes, cudaMemcpyDeviceToHost);
     cudaMemcpy(result, cudaDeviceImageData, bytes, cudaMemcpyDeviceToHost);
-
-    printf(" Copied from CUDA\n");
 
     cudaError_t errCode = cudaPeekAtLastError();
     if (errCode != cudaSuccess) {
@@ -333,14 +301,12 @@ void pfsCuda(int width, int height, int channels, unsigned char *img) {
     }
 
     printf(" Generated Color Dithered image\n"); 
-    //stbi_write_png("../images/dither-parallel.png", width, height, channels, result, width * channels);
-    stbi_write_png("../images/dither-parallel.png", width, height, channels, result, width * channels);
+
+    stbi_write_png("../images/dither-cuda.png", width, height, channels, result, width * channels);
     printf(" Wrote Color Dithered image\n"); 
 
-    // free memory buffers on the GPU
     cudaFree(device_img);
 
-    //NEW STUFF
     cudaFree(cudaDeviceImageData);
 }
 
