@@ -20,7 +20,7 @@ int NCORES = 8;
 void printCudaInfo();
 void pfsCuda(int width, int height, int channels, unsigned char *img);
 
-void color_dither(unsigned char *img, int width, int height, int channels, int factor){
+void sequential_dither(unsigned char *img, int width, int height, int channels, int factor){
     
     for(int y = 0; y < height-1; y++){
         for(int x = 1; x < width-1; x++){
@@ -75,40 +75,6 @@ void color_dither(unsigned char *img, int width, int height, int channels, int f
     return;
 }
 
-void gray(unsigned char *img, int width, int height, int channels){
-    int gray_channels = channels == 4 ? 2 : 1;
-    size_t gray_img_size = width * height * gray_channels;
-
-    unsigned char *gray_img = (unsigned char *)malloc(gray_img_size);
-    if(gray_img == NULL) {
-        printf("Unable to allocate memory for the gray image.\n");
-        exit(1);
-    }
-
-    for(int i = 0; i < height; i++){
-        for(int j = 0; j < width; j++){
-            int index = j + width * i;
-            unsigned char* pixel = img + index * channels;
-            unsigned char* gray_pixel = gray_img + index * gray_channels;
-
-            *gray_pixel = (uint8_t)((pixel[0] + pixel[1] + pixel[2])/3.0);
-            if(channels == 4) {
-                gray_pixel[1] = pixel[3];
-            }
-        }
-    }
-
-    cout << "Generated Gray image" << endl; 
-
-    stbi_write_png("../images/gray.png", width, height, gray_channels, gray_img, width * gray_channels);
-
-    cout << "Wrote Gray image" << endl; 
-
-    free(gray_img);
-}
-
-
-
 unsigned char ** getPixels(unsigned char *img, int width, int channels, int x, int y) {
 
     unsigned char** newArr = new unsigned char*[5];
@@ -150,7 +116,6 @@ void updatePixels(unsigned char** pixelVars, int* qErrors) {
     unsigned char* pixel_bottom = pixelVars[3];
     unsigned char* pixel_bottom_right = pixelVars[4];
 
-    #pragma omp for 
     for (int i = 0; i < 3; i++) {
         int qError = qErrors[i];
 
@@ -195,18 +160,12 @@ void dither(unsigned char *img, int newStart, int width, int height, int channel
 // Blocking Strategy Adapted from : https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.734.9930&rep=rep1&type=pdf 
 void omp_parallel_dither(unsigned char *img, int width, int height, int channels){
 
-    // int totalPixels = height * width;
-
-
     #pragma omp parallel for num_threads(NCORES)
     for (int i = 0; i < NCORES; i++) {
         int dividedHeight = height / omp_get_num_threads();
         int newStart = dividedHeight * i; 
-
-        // cout << "New Start : " << newStart <<  ", Thread: " << omp_get_thread_num() << endl;
         dither(img, newStart, width, dividedHeight, channels);
     }
-    
     
     cout << "Generated OMP Color Dithered image" << endl; 
 
@@ -225,12 +184,10 @@ int main(void) {
 
     cout << "Starting Sequential Version..." << endl;
 
-    
-
     int width, height, channels;
-    unsigned char *img = stbi_load("../images/roadster.png", &width, &height, &channels, 0);
-    unsigned char *og_img = stbi_load("../images/roadster.png", &width, &height, &channels, 0);
-    unsigned char *omp_img = stbi_load("../images/roadster.png", &width, &height, &channels, 0);
+    unsigned char *img = stbi_load("../images/dog.png", &width, &height, &channels, 0);
+    unsigned char *og_img = stbi_load("../images/dog.png", &width, &height, &channels, 0);
+    unsigned char *omp_img = stbi_load("../images/dog.png", &width, &height, &channels, 0);
     if(img == NULL) {
         printf("Error in loading the image\n");
         exit(1);
@@ -238,30 +195,27 @@ int main(void) {
 
     cout << "Read image, width: " <<  width << ", height: " << height << ", channels: "<<channels << endl; 
 
+    // Start sequential
     double startTime = CycleTimer::currentSeconds();
-    color_dither(img, width, height, channels, 4);
+    sequential_dither(img, width, height, channels, 4);
     double endTime = CycleTimer::currentSeconds();
-
     cout << "Time Taken for sequential: " << endTime - startTime << " seconds" << endl;
 
-    
+    // Start OMP
     cout << "Starting OMP Version..." << endl;
-
     startTime = CycleTimer::currentSeconds();
     omp_parallel_dither(omp_img, width, height, channels);
     endTime = CycleTimer::currentSeconds();
     cout << "Time Taken for OMP: " << endTime - startTime << " seconds" << endl;
     
-    cout << "Starting Parallel Version..." << endl;
-
-    //printCudaInfo();
-    //pfsCuda(width, height, channels, og_img);
-
+    // Start CUDA version
+    cout << "Starting CUDA Version..." << endl;
+    printCudaInfo();
+    pfsCuda(width, height, channels, og_img);
 
     stbi_image_free(img);
     stbi_image_free(og_img);
     stbi_image_free(omp_img);
 
-    
     return 0;
 }
